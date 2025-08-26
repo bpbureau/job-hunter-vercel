@@ -80,11 +80,31 @@ class handler(BaseHTTPRequestHandler):
             
             qualifying_jobs = []
             
-            # Process first search term only (to keep it simple for now)
-            search_term = search_terms[0] if search_terms else 'UX Designer'
+            # Use smart extracted search terms instead of just the first one
+            smart_terms = self.extract_smart_search_terms(resume_text, preferences)
+            if not smart_terms:
+                smart_terms = search_terms[:1] if search_terms else ['UX Designer']
             
-            # Fetch jobs from JSearch
-            jobs = self.fetch_jobs_from_jsearch(search_term, location, rapidapi_key)
+            # Fetch jobs using smart search terms (up to 3 terms for variety)
+            all_jobs = []
+            for search_term in smart_terms[:3]:
+                try:
+                    jobs = self.fetch_jobs_from_jsearch(search_term, location, rapidapi_key)
+                    all_jobs.extend(jobs)
+                except Exception as e:
+                    print(f"Error fetching jobs for term '{search_term}': {e}")
+                    continue
+            
+            # Remove duplicates based on job_id
+            unique_jobs = []
+            seen_ids = set()
+            for job in all_jobs:
+                job_id = job.get('job_id', '') or job.get('job_apply_link', '')
+                if job_id and job_id not in seen_ids:
+                    seen_ids.add(job_id)
+                    unique_jobs.append(job)
+            
+            jobs = unique_jobs
             
             # Score jobs with Claude (limit to first 3 jobs to avoid timeout)
             for job in jobs[:3]:
@@ -193,6 +213,63 @@ Provide a score from 0-100 and return ONLY a JSON object:
         except Exception as e:
             print(f"Claude API error: {e}")
             return 50  # Default score if AI fails
+
+    def extract_smart_search_terms(self, resume_text, preferences_text, limit=8):
+        """Extract intelligent search terms from resume and preferences"""
+        import re
+        
+        # UX/Design job titles and skills patterns
+        ux_patterns = [
+            r'UX\s+(?:Designer|Lead|Manager|Director|Architect|Principal)',
+            r'User\s+Experience\s+(?:Designer|Lead|Manager|Director)',
+            r'Product\s+Designer',
+            r'UI/UX\s+Designer', 
+            r'Design\s+(?:Lead|Manager|Director|Principal)',
+            r'Senior\s+(?:UX|UI|Product)\s+Designer',
+            r'Principal\s+Designer',
+            r'Design\s+Systems?',
+            r'User\s+Research',
+            r'Enterprise\s+(?:UX|Design)',
+            r'B2B\s+(?:UX|Design)',
+            r'Platform\s+Design',
+            r'Service\s+Design',
+        ]
+        
+        # Extract matches
+        found_terms = []
+        text_to_search = (resume_text + " " + preferences_text).lower()
+        
+        for pattern in ux_patterns:
+            matches = re.findall(pattern, text_to_search, re.IGNORECASE)
+            for match in matches:
+                clean_term = re.sub(r'\s+', ' ', match.strip())
+                if len(clean_term) > 2:
+                    found_terms.append(clean_term.title())
+        
+        # Add smart variations based on content analysis
+        if 'senior' in text_to_search or '10+' in text_to_search or 'lead' in text_to_search:
+            found_terms.extend(['Senior UX Designer', 'UX Lead', 'Principal Designer'])
+        
+        if 'remote' in preferences_text.lower():
+            remote_terms = [f"Remote {term}" for term in found_terms[:2]]
+            found_terms.extend(remote_terms)
+        
+        if 'design system' in text_to_search:
+            found_terms.extend(['Design Systems Designer', 'Design Systems Lead'])
+        
+        if 'enterprise' in text_to_search or 'b2b' in text_to_search:
+            found_terms.extend(['Enterprise UX Designer', 'B2B UX Designer'])
+        
+        # Remove duplicates and limit results
+        unique_terms = []
+        seen = set()
+        for term in found_terms:
+            term_lower = term.lower()
+            if term_lower not in seen and len(term) > 2:
+                seen.add(term_lower)
+                unique_terms.append(term)
+        
+        return unique_terms[:limit]
 
     def process_job_search_simple(self, search_terms, location):
         """Simplified job search for testing"""
