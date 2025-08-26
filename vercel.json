@@ -1,7 +1,13 @@
 {
   "functions": {
     "api/process-jobs.py": {
-      "runtime": "python3.9"
+      "runtime": "python3.11"
     }
-  }
+  },
+  "builds": [
+    {
+      "src": "api/process-jobs.py",
+      "use": "@vercel/python"
+    }
+  ]
 }
