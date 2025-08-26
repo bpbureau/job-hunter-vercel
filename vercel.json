@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "api/process-jobs.py": {
+      "runtime": "python3.9"
+    }
+  }
+}
